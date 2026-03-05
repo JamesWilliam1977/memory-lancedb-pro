@@ -189,7 +189,7 @@ type ReflectionErrorState = {
   updatedAt: number;
 };
 
-type EmbeddedPiRunner = (params: Record<string, unknown>) => Promise<any>;
+type EmbeddedPiRunner = (params: Record<string, unknown>) => Promise<unknown>;
 
 const requireFromHere = createRequire(import.meta.url);
 let embeddedPiRunnerPromise: Promise<EmbeddedPiRunner> | null = null;
@@ -778,7 +778,7 @@ async function generateReflectionText(params: {
     const modelRef = resolveAgentPrimaryModelRef(params.cfg, params.agentId);
     const { provider, model } = modelRef ? splitProviderModel(modelRef) : {};
 
-    const result: any = await runEmbeddedPiAgent({
+    const result: unknown = await runEmbeddedPiAgent({
       sessionId: `reflection-${Date.now()}`,
       sessionKey: "temp:memory-reflection",
       agentId: params.agentId,
@@ -796,8 +796,18 @@ async function generateReflectionText(params: {
       model,
     });
 
-    if (result?.payloads?.length) {
-      const firstWithText = result.payloads.find((p: any) => p && typeof p.text === "string" && p.text.trim().length);
+    const payloads = (() => {
+      if (!result || typeof result !== "object") return [];
+      const maybePayloads = (result as Record<string, unknown>).payloads;
+      return Array.isArray(maybePayloads) ? maybePayloads : [];
+    })();
+
+    if (payloads.length > 0) {
+      const firstWithText = payloads.find((p) => {
+        if (!p || typeof p !== "object") return false;
+        const text = (p as Record<string, unknown>).text;
+        return typeof text === "string" && text.trim().length > 0;
+      }) as Record<string, unknown> | undefined;
       reflectionText = typeof firstWithText?.text === "string" ? firstWithText.text.trim() : null;
     }
   } catch (err) {
