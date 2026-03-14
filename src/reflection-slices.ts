@@ -193,7 +193,10 @@ export function extractReflectionMappedMemories(reflectionText: string): Reflect
   return extractReflectionMappedMemoryItems(reflectionText).map(({ text, category, heading }) => ({ text, category, heading }));
 }
 
-export function extractReflectionMappedMemoryItems(reflectionText: string): ReflectionMappedMemoryItem[] {
+function extractReflectionMappedMemoryItemsWithSanitizer(
+  reflectionText: string,
+  sanitizeLines: (lines: string[]) => string[],
+): ReflectionMappedMemoryItem[] {
   const mappedSections: Array<{
     heading: string;
     category: "preference" | "fact" | "decision";
@@ -222,10 +225,22 @@ export function extractReflectionMappedMemoryItems(reflectionText: string): Refl
   ];
 
   return mappedSections.flatMap(({ heading, category, mappedKind }) => {
-    const lines = sanitizeReflectionSliceLines(parseSectionBullets(reflectionText, heading));
+    const lines = sanitizeLines(parseSectionBullets(reflectionText, heading));
     const groupSize = lines.length;
     return lines.map((text, ordinal) => ({ text, category, heading, mappedKind, ordinal, groupSize }));
   });
+}
+
+export function extractReflectionMappedMemoryItems(reflectionText: string): ReflectionMappedMemoryItem[] {
+  return extractReflectionMappedMemoryItemsWithSanitizer(reflectionText, sanitizeReflectionSliceLines);
+}
+
+export function extractInjectableReflectionMappedMemoryItems(reflectionText: string): ReflectionMappedMemoryItem[] {
+  return extractReflectionMappedMemoryItemsWithSanitizer(reflectionText, sanitizeInjectableReflectionLines);
+}
+
+export function extractInjectableReflectionMappedMemories(reflectionText: string): ReflectionMappedMemory[] {
+  return extractInjectableReflectionMappedMemoryItems(reflectionText).map(({ text, category, heading }) => ({ text, category, heading }));
 }
 
 function extractReflectionSlicesWithSanitizer(
@@ -272,8 +287,7 @@ export function extractInjectableReflectionSlices(reflectionText: string): Refle
   return extractReflectionSlicesWithSanitizer(reflectionText, sanitizeInjectableReflectionLines);
 }
 
-export function extractReflectionSliceItems(reflectionText: string): ReflectionSliceItem[] {
-  const slices = extractReflectionSlices(reflectionText);
+function buildReflectionSliceItemsFromSlices(slices: ReflectionSlices): ReflectionSliceItem[] {
   const invariantGroupSize = slices.invariants.length;
   const derivedGroupSize = slices.derived.length;
 
@@ -293,4 +307,12 @@ export function extractReflectionSliceItems(reflectionText: string): ReflectionS
   }));
 
   return [...invariantItems, ...derivedItems];
+}
+
+export function extractReflectionSliceItems(reflectionText: string): ReflectionSliceItem[] {
+  return buildReflectionSliceItemsFromSlices(extractReflectionSlices(reflectionText));
+}
+
+export function extractInjectableReflectionSliceItems(reflectionText: string): ReflectionSliceItem[] {
+  return buildReflectionSliceItemsFromSlices(extractInjectableReflectionSlices(reflectionText));
 }

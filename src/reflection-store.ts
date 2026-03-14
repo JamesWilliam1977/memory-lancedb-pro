@@ -1,6 +1,6 @@
 import type { MemoryEntry, MemorySearchResult } from "./store.js";
 import {
-  extractReflectionSliceItems,
+  extractInjectableReflectionSliceItems,
   extractInjectableReflectionSlices,
   sanitizeReflectionSliceLines,
   sanitizeInjectableReflectionLines,
@@ -83,7 +83,7 @@ export function buildReflectionStorePayloads(params: BuildReflectionStorePayload
   ];
 
   const itemPayloads = buildReflectionItemPayloads({
-    items: extractReflectionSliceItems(params.reflectionText),
+    items: extractInjectableReflectionSliceItems(params.reflectionText),
     eventId,
     agentId: params.agentId,
     sessionKey: params.sessionKey,
