@@ -671,15 +671,10 @@ export async function runImportMarkdown(
       content = await fsPromises.readFile(filePath, "utf-8");
     } catch (err) {
       const e = err as NodeJS.ErrnoException;
-      if (e.code === "EISDIR") {
-        // .md directory — already handled above by isFile() check, but catch
-        // this explicitly so genuine I/O errors (permissions, corruption)
-        // are not silently swallowed
-        console.warn(`  [skip] not a file: ${filePath}`);
-        skipped++;
-      } else {
-        throw err; // re-throw genuine I/O errors
-      }
+      // EISDIR unreachable here — isFile() check above already filters directories.
+      // Keep catch for genuine I/O errors (permissions, corruption, etc.).
+      console.warn(`  [skip] not a file: ${filePath}`);
+      skipped++;
       continue;
     }
     // (fix(import-markdown): CI測試登記 + .md目錄skip保護)
