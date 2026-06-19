@@ -91,6 +91,16 @@ export interface MemoryBulkUpdateResult {
   error?: string;
 }
 
+export interface ImportEntryOptions {
+  /**
+   * Treat the entry as known-legacy data (v1.x 1-5 integer importance scale)
+   * and apply `normalizeLegacyImportance` once at this explicit legacy-
+   * provenance boundary. Defaults to false — generic v2+ imports use
+   * `clampImportance` to preserve 0, 1, and decimal values.
+   */
+  legacy?: boolean;
+}
+
 // ============================================================================
 // LanceDB Dynamic Import
 // ============================================================================
@@ -182,6 +192,57 @@ export function normalizeMemoryTimestamp(value: unknown, fallback = Date.now()):
 
   const timestamp = Math.floor(raw);
   return timestamp < LEGACY_SECONDS_TIMESTAMP_MAX ? timestamp * 1000 : timestamp;
+}
+
+/**
+ * Normalize legacy v1.x importance scale (1-5 integers) to v2+ scale (0~1 floats)
+ *
+ * Mapping:
+ *   1 → 0.20   2 → 0.40   3 → 0.60   4 → 0.80   5 → 0.95
+ *
+ * Values already in 0~1 range pass through unchanged.
+ * Use ONLY where the data is known to be legacy (migrate / importEntry / backfill).
+ * For generic v2+ read paths, use clampImportance instead to avoid double-normalization
+ * corruption (e.g. 99 -> 1.0 -> 0.20).
+ *
+ * NOTE: 1.0 is indistinguishable from legacy integer 1 in JS (Number.isInteger(1.0) === true),
+ * so legacy-v1 callers must be aware that legitimate 1.0 will map to 0.20. This trade-off is
+ * only safe in legacy import contexts; v2+ data flows through clampImportance.
+ */
+export function normalizeLegacyImportance(value: number): number {
+  // Guard against NaN / Infinity / -Infinity from corrupted data
+  if (typeof value !== "number" || !Number.isFinite(value)) return 0.7;
+
+  // Legacy v1.x integer scale (1-5) → v2+ 0~1
+  if (Number.isInteger(value) && value >= 1 && value <= 5) {
+    return [null, 0.20, 0.40, 0.60, 0.80, 0.95][value];
+  }
+
+  // Non-legacy float (incl. v2+ 0~1) — pass through with clamp as defensive bound
+  return Math.max(0.0, Math.min(1.0, value));
+}
+
+/**
+ * Clamp a value to the v2+ 0~1 range, preserving legitimate v2+ values like 1.0.
+ * Use on ALL read paths (search, list, getById, update, etc.) to avoid
+ * double-normalization corruption.
+ *
+ * Idempotent: clampImportance(clampImportance(x)) === clampImportance(x).
+ */
+export function clampImportance(value: number): number {
+  if (typeof value !== "number" || !Number.isFinite(value)) return 0.7;
+  return Math.max(0.0, Math.min(1.0, value));
+}
+
+/**
+ * @deprecated Use normalizeLegacyImportance (for legacy data) or clampImportance
+ * (for v2+ data) based on data provenance. This wrapper is kept for backward
+ * compatibility and routes to clampImportance (v2+ 0~1 semantics). The previous
+ * behavior routed to legacy normalization, which surprised callers expecting
+ * generic v2 clamp semantics (see PR #828 review).
+ */
+export function normalizeImportance(value: number): number {
+  return clampImportance(value);
 }
 
 function normalizePredicateTimestamp(value: unknown): number | null {
@@ -1126,7 +1187,19 @@ export class MemoryStore {
     // F1 fix: store() now routes through bulkStore() accumulator
     // for consistent lock contention behavior (no per-call file lock).
     // MR2 fix: when pendingBatch is empty, immediate flush avoids 100ms delay.
-    const results = await this.bulkStore([entry]);
+    // F3 fix (PR #828 follow-up): clamp importance at the write boundary so
+    // direct store() callers (e.g. the CLI JSON no-id import path) cannot
+    // persist out-of-range raw values like 4 or 99. clampImportance is
+    // idempotent and preserves legitimate v2+ 0~1 values, so wrapping here is
+    // safe for callers that already normalized upstream. importEntry() keeps
+    // its explicit legacy branch — this clamp is the generic v2+ boundary.
+    // Number() coerces the structurally-typed entry.importance to a real
+    // number so clampImportance's NaN/Infinity fallback can do its job.
+    const clampedEntry: Omit<MemoryEntry, "id" | "timestamp"> = {
+      ...entry,
+      importance: clampImportance(Number(entry.importance)),
+    };
+    const results = await this.bulkStore([clampedEntry]);
     return results[0];
   }
 
@@ -1136,9 +1209,13 @@ export class MemoryStore {
     const result = await this.runWithWriteLock(() => this.runSerializedUpdate(async () => {
       const safeId = escapeSqlLiteral(entry.id);
       await this.table!.delete(`id = '${safeId}'`).catch(() => undefined);
+      // F3 fix (PR #828 follow-up): clamp importance at the write boundary so
+      // upsert() callers cannot persist out-of-range raw values. clampImportance
+      // is idempotent and preserves legitimate v2+ 0~1 values.
       const normalizedEntry: MemoryEntry = {
         ...entry,
         metadata: entry.metadata || "{}",
+        importance: clampImportance(entry.importance),
       };
       await this.table!.add([normalizedEntry]);
       return normalizedEntry;
@@ -1194,11 +1271,20 @@ export class MemoryStore {
     }
 
     // 附加 id/timestamp
+    // F3 fix (PR #828 follow-up): clamp importance at the bulk write boundary
+    // so direct bulkStore() callers cannot persist out-of-range raw values like
+    // 4 or 99. clampImportance is idempotent, so callers that already
+    // normalized upstream are unaffected. store() applies the same clamp
+    // before calling bulkStore(); doing it again here covers direct bulkStore
+    // callers (e.g. CLI JSON import retry paths).
+    // Number() coerces the structurally-typed entry.importance to a real
+    // number so clampImportance's NaN/Infinity fallback can do its job.
     const fullEntries: MemoryEntry[] = validEntries.map((entry) => ({
       ...entry,
       id: randomUUID(),
       timestamp: Date.now(),
       metadata: entry.metadata || "{}",
+      importance: clampImportance(Number(entry.importance)),
     }) as MemoryEntry);
 
     // 【MR2 fix】當 pendingBatch 達到上限時，等待前一個 flush 完成後再加入
@@ -1495,8 +1581,17 @@ export class MemoryStore {
    * Import a pre-built entry while preserving its id/timestamp.
    * Used for re-embedding / migration / A/B testing across embedding models.
    * Intentionally separate from `store()` to keep normal writes simple.
+   *
+   * Default behavior treats the entry as a generic v2+ import and applies
+   * idempotent `clampImportance` (preserves 0, 1, and decimal v2+ values).
+   * For known-legacy data sources (e.g. `migrate.ts` / explicit backfill),
+   * pass `{ legacy: true }` to apply the v1.x 1-5 integer → 0~1 mapping
+   * exactly once at this explicit legacy-provenance boundary.
    */
-  async importEntry(entry: MemoryEntry): Promise<MemoryEntry> {
+  async importEntry(
+    entry: MemoryEntry,
+    options: ImportEntryOptions = {},
+  ): Promise<MemoryEntry> {
     await this.ensureInitialized();
 
     if (!entry.id || typeof entry.id !== "string") {
@@ -1513,7 +1608,9 @@ export class MemoryStore {
     const full: MemoryEntry = {
       ...entry,
       scope: entry.scope || "global",
-      importance: Number.isFinite(entry.importance) ? entry.importance : 0.7,
+      importance: options.legacy
+        ? normalizeLegacyImportance(entry.importance)
+        : clampImportance(entry.importance),
       timestamp: normalizeMemoryTimestamp(entry.timestamp),
       metadata: entry.metadata || "{}",
     };
@@ -1567,7 +1664,7 @@ export class MemoryStore {
       vector: Array.from(row.vector as Iterable<number>),
       category: row.category as MemoryEntry["category"],
       scope: rowScope,
-      importance: Number(row.importance),
+      importance: clampImportance(Number(row.importance)),
       timestamp: normalizeMemoryTimestamp(row.timestamp, 0),
       metadata: (row.metadata as string) || "{}",
     };
@@ -1683,7 +1780,7 @@ export class MemoryStore {
         vector: rowVector,
         category: row.category as MemoryEntry["category"],
         scope: rowScope,
-        importance: Number(row.importance),
+        importance: clampImportance(Number(row.importance)),
         timestamp: normalizeMemoryTimestamp(row.timestamp, 0),
         metadata: (row.metadata as string) || "{}",
       };
@@ -1765,7 +1862,7 @@ export class MemoryStore {
             vector: row.vector as number[],
             category: row.category as MemoryEntry["category"],
             scope: rowScope,
-            importance: Number(row.importance),
+            importance: clampImportance(Number(row.importance)),
             timestamp: normalizeMemoryTimestamp(row.timestamp, 0),
             metadata: (row.metadata as string) || "{}",
         };
@@ -1829,7 +1926,7 @@ export class MemoryStore {
         vector: row.vector as number[],
         category: row.category as MemoryEntry["category"],
         scope: rowScope,
-        importance: Number(row.importance),
+        importance: clampImportance(Number(row.importance)),
         timestamp: normalizeMemoryTimestamp(row.timestamp, 0),
         metadata: (row.metadata as string) || "{}",
       };
@@ -1973,7 +2070,7 @@ export class MemoryStore {
           vector: [], // Don't include vectors in list results for performance
           category: row.category as MemoryEntry["category"],
           scope: (row.scope as string | undefined) ?? "global",
-          importance: Number(row.importance),
+          importance: clampImportance(Number(row.importance)),
           timestamp: normalizeMemoryTimestamp(row.timestamp, 0),
           metadata: (row.metadata as string) || "{}",
         }),
@@ -2160,7 +2257,11 @@ export class MemoryStore {
             vector: candidate.updates.vector ?? original.vector,
             category: candidate.updates.category ?? original.category,
             scope: rowScope,
-            importance: candidate.updates.importance ?? original.importance,
+            // F3 fix (PR #828 follow-up): clamp importance on update path so
+            // bulkUpdateExact callers cannot persist out-of-range values.
+            importance: clampImportance(
+              candidate.updates.importance ?? original.importance,
+            ),
             timestamp: original.timestamp,
             metadata: candidate.updates.metadata ?? original.metadata,
           };
@@ -2333,7 +2434,7 @@ export class MemoryStore {
         vector: Array.from(row.vector as Iterable<number>),
         category: row.category as MemoryEntry["category"],
         scope: rowScope,
-        importance: Number(row.importance),
+        importance: clampImportance(Number(row.importance)),
         timestamp: normalizeMemoryTimestamp(row.timestamp, 0),
         metadata: (row.metadata as string) || "{}",
       };
@@ -2345,7 +2446,11 @@ export class MemoryStore {
         vector: updates.vector ?? original.vector,
         category: updates.category ?? original.category,
         scope: rowScope,
-        importance: updates.importance ?? original.importance,
+        // F3 fix (PR #828 follow-up): clamp importance on update path so
+        // update() callers cannot persist out-of-range values.
+        importance: clampImportance(
+          updates.importance ?? original.importance,
+        ),
         timestamp: original.timestamp, // preserve original
         metadata: updates.metadata ?? original.metadata,
       };
@@ -2565,7 +2670,7 @@ export class MemoryStore {
           vector: Array.isArray(row.vector) ? (row.vector as number[]) : [],
           category: row.category as MemoryEntry["category"],
           scope: (row.scope as string | undefined) ?? "global",
-          importance: Number(row.importance),
+          importance: clampImportance(Number(row.importance)),
           timestamp: normalizeMemoryTimestamp(row.timestamp, 0),
           metadata: (row.metadata as string) || "{}",
         }),
