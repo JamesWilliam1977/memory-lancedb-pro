@@ -2197,7 +2197,6 @@ export class MemoryStore {
             .where(whereClause)
             .toArray();
         return results
-            .slice(0, limit)
             .map((row) => ({
             id: row.id,
             text: row.text,
@@ -2207,6 +2206,8 @@ export class MemoryStore {
             importance: clampImportance(Number(row.importance)),
             timestamp: normalizeMemoryTimestamp(row.timestamp, 0),
             metadata: row.metadata || "{}",
-        }));
+        }))
+            .sort((a, b) => b.timestamp - a.timestamp)
+            .slice(0, limit);
     }
 }

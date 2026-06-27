@@ -109,6 +109,13 @@ import {
   parseCanonicalCorpusConfig,
   type CanonicalCorpusConfig,
 } from "./src/corpus-indexer.js";
+import {
+  computeNextDreamingDelayMs,
+  createDreamingEngine,
+  normalizeDreamingConfig,
+  type DreamingConfig,
+  type DreamingEngine,
+} from "./src/dreaming-engine.js";
 
 // ============================================================================
 // Configuration & Types
@@ -263,6 +270,7 @@ interface PluginConfig {
     maxEntries?: number;
   };
   canonicalCorpus?: CanonicalCorpusConfig;
+  dreaming?: DreamingConfig;
   memoryReflection?: {
     enabled?: boolean;
     storeToLanceDB?: boolean;
@@ -2234,6 +2242,8 @@ interface PluginSingletonState {
   tierManager: ReturnType<typeof createTierManager>;
   retriever: ReturnType<typeof createRetriever>;
   canonicalCorpusIndexer: CanonicalCorpusIndexer;
+  dreamingEngine: DreamingEngine;
+  dreamingScheduler: DreamingSchedulerState;
   scopeManager: ReturnType<typeof createScopeManager>;
   migrator: ReturnType<typeof createMigrator>;
   smartExtractor: SmartExtractor | null;
@@ -2248,6 +2258,13 @@ interface PluginSingletonState {
   autoCaptureSeenTextCount: Map<string, number>;
   autoCapturePendingIngressTexts: Map<string, string[]>;
   autoCaptureRecentTexts: Map<string, string[]>;
+}
+
+interface DreamingSchedulerState {
+  timer: ReturnType<typeof setTimeout> | null;
+  running: boolean;
+  stopped: boolean;
+  owners: Set<OpenClawPluginApi>;
 }
 
 let _singletonState: PluginSingletonState | null = null;
@@ -2328,6 +2345,24 @@ function _initPluginState(api: OpenClawPluginApi): PluginSingletonState {
     log: (message) => api.logger.info(message),
     warn: (message) => api.logger.warn(message),
   });
+  const dreamingEngine = createDreamingEngine({
+    store,
+    embedder,
+    decayEngine,
+    tierManager,
+    config: config.dreaming,
+    getScopes: async () => {
+      const stats = await store.stats();
+      return Object.keys(stats.scopeCounts).sort();
+    },
+    logger: api.logger,
+  });
+  const dreamingScheduler: DreamingSchedulerState = {
+    timer: null,
+    running: false,
+    stopped: true,
+    owners: new Set(),
+  };
 
   const clawteamScopes = parseClawteamScopes(process.env.CLAWTEAM_MEMORY_SCOPE);
   if (clawteamScopes.length > 0) {
@@ -2434,6 +2469,8 @@ function _initPluginState(api: OpenClawPluginApi): PluginSingletonState {
     tierManager,
     retriever,
     canonicalCorpusIndexer,
+    dreamingEngine,
+    dreamingScheduler,
     scopeManager,
     migrator,
     smartExtractor,
@@ -2580,6 +2617,8 @@ const memoryLanceDBProPlugin = {
       embedder,
       retriever,
       canonicalCorpusIndexer,
+      dreamingEngine,
+      dreamingScheduler,
       scopeManager,
       migrator,
       smartExtractor,
@@ -5160,6 +5199,54 @@ const memoryLanceDBProPlugin = {
       }
     }
 
+    async function runDreamingSweep() {
+      if (config.dreaming?.enabled !== true) return;
+      if (dreamingScheduler.stopped) return;
+      if (dreamingScheduler.running) {
+        api.logger.debug("memory-lancedb-pro: dreaming sweep skipped because a prior run is still active");
+        return;
+      }
+
+      dreamingScheduler.running = true;
+      const startedAt = Date.now();
+      try {
+        const result = await dreamingEngine.runSweep();
+        const changed = Object.values(result.phases).reduce((sum, phase) => sum + phase.changed, 0);
+        if (changed > 0 || result.errors.length > 0 || config.dreaming.verboseLogging) {
+          api.logger.info(
+            `memory-lancedb-pro: dreaming sweep completed ` +
+            `(changed=${changed}, scopes=${result.scopes.length}, errors=${result.errors.length}, elapsedMs=${Date.now() - startedAt})`,
+          );
+        }
+      } catch (err) {
+        api.logger.warn(`memory-lancedb-pro: dreaming sweep failed: ${String(err)}`);
+      } finally {
+        dreamingScheduler.running = false;
+      }
+    }
+
+    function scheduleNextDreamingSweep() {
+      if (config.dreaming?.enabled !== true) return;
+      if (dreamingScheduler.stopped) return;
+      if (dreamingScheduler.timer) return;
+
+      const delayMs = computeNextDreamingDelayMs(
+        config.dreaming.frequency,
+        config.dreaming.timezone,
+      );
+      api.logger.info(
+        `memory-lancedb-pro: dreaming scheduled ` +
+        `(frequency="${config.dreaming.frequency}", nextRunInMs=${delayMs})`,
+      );
+      dreamingScheduler.timer = setTimeout(async () => {
+        dreamingScheduler.timer = null;
+        if (dreamingScheduler.stopped) return;
+        await runDreamingSweep();
+        if (dreamingScheduler.stopped) return;
+        scheduleNextDreamingSweep();
+      }, delayMs);
+    }
+
     // ========================================================================
     // Service Registration
     // ========================================================================
@@ -5167,6 +5254,13 @@ const memoryLanceDBProPlugin = {
     api.registerService({
       id: "memory-lancedb-pro",
       start: async () => {
+        if (registrationStopped) {
+          api.logger.debug?.("memory-lancedb-pro: start ignored after service stop");
+          return;
+        }
+        dreamingScheduler.owners.add(api);
+        dreamingScheduler.stopped = false;
+        dreamingEngine.start();
         // IMPORTANT: Do not block gateway startup on external network calls.
         // If embedding/retrieval tests hang (bad network / slow provider), the gateway
         // may never bind its HTTP port, causing restart timeouts.
@@ -5317,6 +5411,8 @@ const memoryLanceDBProPlugin = {
             intervalMs,
           );
         }
+
+        scheduleNextDreamingSweep();
       },
       stop: async () => {
         if (registrationStopped) {
@@ -5325,6 +5421,7 @@ const memoryLanceDBProPlugin = {
         registrationStopped = true;
         _registeredApis.delete(api);
         _registeredApisMap.delete(api);
+        dreamingScheduler.owners.delete(api);
         if (backupTimer) {
           clearInterval(backupTimer);
           backupTimer = null;
@@ -5336,6 +5433,14 @@ const memoryLanceDBProPlugin = {
         if (storageMaintenanceTimer) {
           clearInterval(storageMaintenanceTimer);
           storageMaintenanceTimer = null;
+        }
+        if (dreamingScheduler.owners.size === 0) {
+          dreamingScheduler.stopped = true;
+          if (dreamingScheduler.timer) {
+            clearTimeout(dreamingScheduler.timer);
+            dreamingScheduler.timer = null;
+          }
+          dreamingEngine.stop();
         }
         if (_registeredApisMap.size === 0 && _singletonState?.store === store) {
           try {
@@ -5645,6 +5750,7 @@ export function parsePluginConfig(value: unknown): PluginConfig {
       }
       : undefined,
     canonicalCorpus: parseCanonicalCorpusConfig(cfg.canonicalCorpus),
+    dreaming: normalizeDreamingConfig(cfg.dreaming),
     memoryReflection: memoryReflectionRaw
       ? {
         enabled: sessionStrategy === "memoryReflection",

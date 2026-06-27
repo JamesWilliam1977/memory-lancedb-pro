@@ -38,6 +38,7 @@ function createMockApi(pluginConfig, options = {}) {
       warn() {},
       error() {},
       debug() {},
+      ...(options.logger ?? {}),
     },
     resolvePath(value) {
       return value;
@@ -275,6 +276,23 @@ assert.deepEqual(
   "parsePluginConfig should wire supported AST chunking settings and discard unsupported language names",
 );
 
+const parsedDreamingConfig = plugin.parsePluginConfig({
+  embedding: {
+    provider: "openai-compatible",
+    apiKey: "dummy",
+  },
+  dreaming: {
+    enabled: true,
+    frequency: "0 4 * * *",
+    phases: {
+      deep: { minUniqueQueries: 0 },
+    },
+  },
+}).dreaming;
+assert.equal(parsedDreamingConfig.enabled, true, "parsePluginConfig should enable configured dreaming");
+assert.equal(parsedDreamingConfig.frequency, "0 4 * * *", "parsePluginConfig should preserve dreaming frequency");
+assert.equal(parsedDreamingConfig.phases.deep.minUniqueQueries, 0, "parsePluginConfig should preserve deep dreaming knobs");
+
 const workDir = mkdtempSync(path.join(tmpdir(), "memory-plugin-regression-"));
 const services = [];
 const embeddingRequests = [];
@@ -427,11 +445,18 @@ try {
     const sharedDbPath = path.join(workDir, "db-stop-shared");
     const firstSharedServices = [];
     const secondSharedServices = [];
+    const sharedLogs = [];
+    const sharedLogger = {
+      info(message) {
+        sharedLogs.push(String(message));
+      },
+    };
     const firstSharedApi = createMockApi(
       {
         dbPath: sharedDbPath,
         autoCapture: false,
         autoRecall: false,
+        dreaming: { enabled: true, frequency: "@daily" },
         embedding: {
           provider: "openai-compatible",
           apiKey: "dummy",
@@ -440,13 +465,14 @@ try {
           dimensions: 1536,
         },
       },
-      { services: firstSharedServices },
+      { services: firstSharedServices, logger: sharedLogger },
     );
     const secondSharedApi = createMockApi(
       {
         dbPath: sharedDbPath,
         autoCapture: false,
         autoRecall: false,
+        dreaming: { enabled: true, frequency: "@daily" },
         embedding: {
           provider: "openai-compatible",
           apiKey: "dummy",
@@ -455,27 +481,59 @@ try {
           dimensions: 1536,
         },
       },
-      { services: secondSharedServices },
+      { services: secondSharedServices, logger: sharedLogger },
     );
     resetRegistration();
     plugin.register(firstSharedApi);
     plugin.register(secondSharedApi);
     assert.equal(firstSharedServices.length, 1, "first registration should add a service");
     assert.equal(secondSharedServices.length, 1, "second registration should add a service");
-    await firstSharedServices[0].stop();
-    assert.equal(
-      destroyCalls,
-      0,
-      "stopping one of multiple registrations should keep the shared store alive",
-    );
-    assert.deepEqual(destroyedDbPaths, []);
-    await secondSharedServices[0].stop();
-    assert.equal(
-      destroyCalls,
-      1,
-      "shared store should be destroyed only after the final registration stops",
-    );
-    assert.deepEqual(destroyedDbPaths, [sharedDbPath]);
+    const originalSetTimeout = globalThis.setTimeout;
+    const originalClearTimeout = globalThis.clearTimeout;
+    const originalSetInterval = globalThis.setInterval;
+    const originalClearInterval = globalThis.clearInterval;
+    let fakeTimerId = 0;
+    try {
+      globalThis.setTimeout = () => ({ fakeTimerId: ++fakeTimerId });
+      globalThis.clearTimeout = () => {};
+      globalThis.setInterval = () => ({ fakeTimerId: ++fakeTimerId });
+      globalThis.clearInterval = () => {};
+
+      await firstSharedServices[0].start();
+      await secondSharedServices[0].start();
+      assert.equal(
+        sharedLogs.filter((message) => message.includes("memory-lancedb-pro: dreaming scheduled")).length,
+        1,
+        "multiple registrations should share one dreaming scheduler",
+      );
+
+      await firstSharedServices[0].stop();
+      assert.equal(
+        destroyCalls,
+        0,
+        "stopping one of multiple registrations should keep the shared store alive",
+      );
+      assert.deepEqual(destroyedDbPaths, []);
+
+      await secondSharedServices[0].stop();
+      assert.equal(
+        destroyCalls,
+        1,
+        "shared store should be destroyed only after the final registration stops",
+      );
+      assert.deepEqual(destroyedDbPaths, [sharedDbPath]);
+      await secondSharedServices[0].start();
+      assert.equal(
+        sharedLogs.filter((message) => message.includes("memory-lancedb-pro: dreaming scheduled")).length,
+        1,
+        "stopped service objects should not restart background dreaming work",
+      );
+    } finally {
+      globalThis.setTimeout = originalSetTimeout;
+      globalThis.clearTimeout = originalClearTimeout;
+      globalThis.setInterval = originalSetInterval;
+      globalThis.clearInterval = originalClearInterval;
+    }
   } finally {
     MemoryStore.prototype.destroy = originalDestroy;
   }
@@ -676,11 +734,14 @@ try {
       sessionKey: "agent:main:test",
     });
     const requestCountBeforeWithDimensions = embeddingRequests.length;
+    const withDimensionsText = "dimensions should stay internal by default";
     await withDimensionsTool.execute("tool-3", {
-      text: "dimensions should stay internal by default",
+      text: withDimensionsText,
       scope: "global",
     });
-    const withDimensionsRequest = embeddingRequests.at(requestCountBeforeWithDimensions);
+    const withDimensionsRequest = embeddingRequests
+      .slice(requestCountBeforeWithDimensions)
+      .find((request) => request.input === withDimensionsText);
     assert.equal(
       Object.prototype.hasOwnProperty.call(withDimensionsRequest ?? {}, "dimensions"),
       false,
@@ -706,8 +767,9 @@ try {
       sessionKey: "agent:main:test",
     });
     const requestCountBeforeRequestDimensions = embeddingRequests.length;
+    const withRequestDimensionsText = "requestDimensions should drive both request payload and local schema size";
     const withRequestDimensionsResult = await withRequestDimensionsTool.execute("tool-3b", {
-      text: "requestDimensions should drive both request payload and local schema size",
+      text: withRequestDimensionsText,
       scope: "global",
     });
     assert.equal(
@@ -715,7 +777,9 @@ try {
       "created",
       "requestDimensions-only config should still create memories end-to-end",
     );
-    const withRequestDimensionsRequest = embeddingRequests.at(requestCountBeforeRequestDimensions);
+    const withRequestDimensionsRequest = embeddingRequests
+      .slice(requestCountBeforeRequestDimensions)
+      .find((request) => request.input === withRequestDimensionsText);
     assert.equal(
       withRequestDimensionsRequest?.dimensions,
       4,
@@ -742,11 +806,14 @@ try {
       sessionKey: "agent:main:test",
     });
     const requestCountBeforeOmitDimensions = embeddingRequests.length;
+    const omitDimensionsText = "dimensions should be omitted when configured";
     await omitDimensionsTool.execute("tool-4", {
-      text: "dimensions should be omitted when configured",
+      text: omitDimensionsText,
       scope: "global",
     });
-    const omitDimensionsRequest = embeddingRequests.at(requestCountBeforeOmitDimensions);
+    const omitDimensionsRequest = embeddingRequests
+      .slice(requestCountBeforeOmitDimensions)
+      .find((request) => request.input === omitDimensionsText);
     assert.equal(
       Object.prototype.hasOwnProperty.call(omitDimensionsRequest, "dimensions"),
       false,
