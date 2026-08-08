@@ -1,0 +1,472 @@
+# Instincts generated from https://github.com/JamesWilliam1977/memory-lancedb-pro
+# Generated: 2026-04-29T11:05:11.305Z
+# Version: 2.0
+# NOTE: This file supplements (does not replace) any existing curated instincts.
+# High-confidence manually curated instincts should be preserved alongside these.
+
+---
+id: memory-lancedb-pro-commit-conventional
+trigger: "when writing a commit message"
+confidence: 0.85
+domain: git
+source: repo-analysis
+source_repo: https://github.com/JamesWilliam1977/memory-lancedb-pro
+---
+
+# Memory Lancedb Pro Commit Conventional
+
+## Action
+
+Use conventional commit format with prefixes: fix
+
+## Evidence
+
+- 2 commits analyzed
+- Detected conventional commit pattern
+- Examples: fix(memory-reflection): Issue #680 - serial guard, fail-open, bulkStore (B/C options) (#684), fix: isOwnedByAgent derived ownership (#448) (#522)
+
+---
+id: memory-lancedb-pro-commit-length
+trigger: "when writing a commit message"
+confidence: 0.6
+domain: git
+source: repo-analysis
+source_repo: https://github.com/JamesWilliam1977/memory-lancedb-pro
+---
+
+# Memory Lancedb Pro Commit Length
+
+## Action
+
+Write moderate-length commit messages (~72 characters)
+
+## Evidence
+
+- Average commit message length: 72 chars
+- Based on 2 commits
+
+---
+id: memory-lancedb-pro-naming-files
+trigger: "when creating a new file"
+confidence: 0.8
+domain: code-style
+source: repo-analysis
+source_repo: https://github.com/JamesWilliam1977/memory-lancedb-pro
+---
+
+# Memory Lancedb Pro Naming Files
+
+## Action
+
+Use kebab-case naming convention
+
+## Evidence
+
+- Analyzed file naming patterns in repository
+- Dominant pattern: kebab-case
+
+---
+id: memory-lancedb-pro-import-relative
+trigger: "when importing modules"
+confidence: 0.75
+domain: code-style
+source: repo-analysis
+source_repo: https://github.com/JamesWilliam1977/memory-lancedb-pro
+---
+
+# Memory Lancedb Pro Import Relative
+
+## Action
+
+Use relative imports for project files
+
+## Evidence
+
+- Import analysis shows relative import pattern
+- Example: import { x } from '../lib/x'
+
+---
+id: memory-lancedb-pro-export-style
+trigger: "when exporting from a module"
+confidence: 0.7
+domain: code-style
+source: repo-analysis
+source_repo: https://github.com/JamesWilliam1977/memory-lancedb-pro
+---
+
+# Memory Lancedb Pro Export Style
+
+## Action
+
+Prefer named exports
+
+## Evidence
+
+- Export pattern analysis
+- Dominant style: named
+
+---
+id: memory-lancedb-pro-test-separate
+trigger: "when writing tests"
+confidence: 0.8
+domain: testing
+source: repo-analysis
+source_repo: https://github.com/JamesWilliam1977/memory-lancedb-pro
+---
+
+# Memory Lancedb Pro Test Separate
+
+## Action
+
+Place tests in the tests/ or __tests__/ directory, mirroring src structure
+
+## Evidence
+
+- Separate test directory pattern detected
+- Tests live in dedicated test folders
+
+---
+id: memory-lancedb-pro-test-naming
+trigger: "when creating a test file"
+confidence: 0.85
+domain: testing
+source: repo-analysis
+source_repo: https://github.com/JamesWilliam1977/memory-lancedb-pro
+---
+
+# Memory Lancedb Pro Test Naming
+
+## Action
+
+Name test files using the pattern: *.test.ts
+
+## Evidence
+
+- File pattern: *.test.ts
+- Consistent across test files
+
+---
+id: memory-lancedb-pro-test-types
+trigger: "when planning tests for a feature"
+confidence: 0.7
+domain: testing
+source: repo-analysis
+source_repo: https://github.com/JamesWilliam1977/memory-lancedb-pro
+---
+
+# Memory Lancedb Pro Test Types
+
+## Action
+
+Write unit, integration tests to match project standards
+
+## Evidence
+
+- Test types detected: unit, integration
+- Coverage config: no
+
+---
+id: memory-lancedb-pro-workflow-bugfix-with-tdd-and-ci-manifest-update
+trigger: "when doing bugfix with tdd and ci manifest update"
+confidence: 0.6
+domain: workflow
+source: repo-analysis
+source_repo: https://github.com/JamesWilliam1977/memory-lancedb-pro
+---
+
+# Memory Lancedb Pro Workflow Bugfix With Tdd And Ci Manifest Update
+
+## Action
+
+Follow the bugfix-with-tdd-and-ci-manifest-update workflow:
+1. Write failing test(s) for the bug (TDD) in test/*.test.mjs
+2. Implement the bugfix in relevant source files (e.g., index.ts, src/*.ts)
+3. Update or add type/interface definitions if needed (e.g., src/*.ts)
+4. Update scripts/ci-test-manifest.mjs to include new/updated tests
+5. Verify all tests pass and CI covers the new cases
+
+## Evidence
+
+- Workflow detected from commit patterns
+- Frequency: ~2x per month
+- Files: index.ts, src/*.ts, test/*.test.mjs
+
+---
+id: memory-lancedb-pro-workflow-security-or-invariant-fix-with-test-update
+trigger: "when doing security or invariant fix with test update"
+confidence: 0.6
+domain: workflow
+source: repo-analysis
+source_repo: https://github.com/JamesWilliam1977/memory-lancedb-pro
+---
+
+# Memory Lancedb Pro Workflow Security Or Invariant Fix With Test Update
+
+## Action
+
+Follow the security-or-invariant-fix-with-test-update workflow:
+1. Implement fix in core logic (e.g., index.ts, src/*.ts)
+2. Update or add test cases in test/*.test.mjs to cover new edge cases
+3. Ensure source and test files use consistent encoding/formatting (e.g., UTF-8, LF)
+4. Document reviewer feedback and address must-fix items
+
+## Evidence
+
+- Workflow detected from commit patterns
+- Frequency: ~2x per month
+- Files: index.ts, src/*.ts, test/*.test.mjs
+
+---
+id: memory-lancedb-pro-instinct-file-naming
+trigger: "When creating or renaming a file in the repository"
+confidence: 0.85
+domain: code-style
+source: repo-analysis
+source_repo: JamesWilliam1977/memory-lancedb-pro
+---
+
+# Memory Lancedb Pro Instinct File Naming
+
+## Action
+
+Use kebab-case for file names (e.g., my-file.ts)
+
+## Evidence
+
+- Pattern in namingConventions.files
+- Observed in src and test file names
+
+---
+id: memory-lancedb-pro-instinct-function-naming
+trigger: "When defining a function"
+confidence: 0.8
+domain: code-style
+source: repo-analysis
+source_repo: JamesWilliam1977/memory-lancedb-pro
+---
+
+# Memory Lancedb Pro Instinct Function Naming
+
+## Action
+
+Use camelCase for function names
+
+## Evidence
+
+- Pattern in namingConventions.functions
+
+---
+id: memory-lancedb-pro-instinct-class-naming
+trigger: "When defining a class"
+confidence: 0.8
+domain: code-style
+source: repo-analysis
+source_repo: JamesWilliam1977/memory-lancedb-pro
+---
+
+# Memory Lancedb Pro Instinct Class Naming
+
+## Action
+
+Use PascalCase for class names
+
+## Evidence
+
+- Pattern in namingConventions.classes
+
+---
+id: memory-lancedb-pro-instinct-constant-naming
+trigger: "When defining a constant"
+confidence: 0.8
+domain: code-style
+source: repo-analysis
+source_repo: JamesWilliam1977/memory-lancedb-pro
+---
+
+# Memory Lancedb Pro Instinct Constant Naming
+
+## Action
+
+Use SCREAMING_SNAKE_CASE for constant names
+
+## Evidence
+
+- Pattern in namingConventions.constants
+
+---
+id: memory-lancedb-pro-instinct-import-style
+trigger: "When importing modules within the codebase"
+confidence: 0.8
+domain: code-style
+source: repo-analysis
+source_repo: JamesWilliam1977/memory-lancedb-pro
+---
+
+# Memory Lancedb Pro Instinct Import Style
+
+## Action
+
+Use relative import paths
+
+## Evidence
+
+- Pattern in importStyle: relative
+
+---
+id: memory-lancedb-pro-instinct-export-style
+trigger: "When exporting functions, classes, or constants"
+confidence: 0.8
+domain: code-style
+source: repo-analysis
+source_repo: JamesWilliam1977/memory-lancedb-pro
+---
+
+# Memory Lancedb Pro Instinct Export Style
+
+## Action
+
+Use named exports
+
+## Evidence
+
+- Pattern in exportStyle: named
+
+---
+id: memory-lancedb-pro-instinct-test-file-pattern
+trigger: "When adding or updating test files"
+confidence: 0.9
+domain: testing
+source: repo-analysis
+source_repo: JamesWilliam1977/memory-lancedb-pro
+---
+
+# Memory Lancedb Pro Instinct Test File Pattern
+
+## Action
+
+Name test files with the pattern *.test.ts
+
+## Evidence
+
+- Pattern in testing.filePattern
+- Files in test/*.test.mjs
+
+---
+id: memory-lancedb-pro-instinct-test-types
+trigger: "When writing tests"
+confidence: 0.7
+domain: testing
+source: repo-analysis
+source_repo: JamesWilliam1977/memory-lancedb-pro
+---
+
+# Memory Lancedb Pro Instinct Test Types
+
+## Action
+
+Include both unit and integration tests as appropriate
+
+## Evidence
+
+- testing.testTypes includes unit and integration
+
+---
+id: memory-lancedb-pro-instinct-tdd-bugfix
+trigger: "When fixing a bug"
+confidence: 0.9
+domain: testing
+source: repo-analysis
+source_repo: JamesWilliam1977/memory-lancedb-pro
+---
+
+# Memory Lancedb Pro Instinct Tdd Bugfix
+
+## Action
+
+First write a failing test that reproduces the bug (TDD approach)
+
+## Evidence
+
+- bugfix-with-tdd-and-ci-manifest-update workflow
+- Commit sequence: Write failing test(s) for the bug
+
+---
+id: memory-lancedb-pro-instinct-git-commit-format
+trigger: "When writing a git commit message"
+confidence: 0.9
+domain: git
+source: repo-analysis
+source_repo: JamesWilliam1977/memory-lancedb-pro
+---
+
+# Memory Lancedb Pro Instinct Git Commit Format
+
+## Action
+
+Use the conventional commit format with 'fix' prefix for bug fixes (e.g., fix: description)
+
+## Evidence
+
+- commits.type: conventional
+- commits.prefixes: fix
+- Examples: fix(memory-reflection): ...
+
+---
+id: memory-lancedb-pro-instinct-git-commit-length
+trigger: "When writing a git commit message"
+confidence: 0.7
+domain: git
+source: repo-analysis
+source_repo: JamesWilliam1977/memory-lancedb-pro
+---
+
+# Memory Lancedb Pro Instinct Git Commit Length
+
+## Action
+
+Keep commit messages concise, around 72 characters on average
+
+## Evidence
+
+- commits.averageLength: 72
+
+---
+id: memory-lancedb-pro-instinct-bugfix-tdd-ci
+trigger: "When someone needs to fix a bug and ensure it is covered by automated tests and CI"
+confidence: 0.9
+domain: workflow
+source: repo-analysis
+source_repo: JamesWilliam1977/memory-lancedb-pro
+---
+
+# Memory Lancedb Pro Instinct Bugfix Tdd Ci
+
+## Action
+
+Follow the workflow: (1) Write failing test(s) for the bug in test/*.test.mjs, (2) Implement the bugfix in index.ts or src/*.ts, (3) Update/add type/interface definitions if needed, (4) Update scripts/ci-test-manifest.mjs to include new/updated tests, (5) Verify all tests pass and CI covers the new cases
+
+## Evidence
+
+- bugfix-with-tdd-and-ci-manifest-update workflow
+- Commit sequence and files involved
+
+---
+id: memory-lancedb-pro-instinct-security-invariant-fix
+trigger: "When someone discovers a security or data integrity issue that requires both code and test updates"
+confidence: 0.85
+domain: workflow
+source: repo-analysis
+source_repo: JamesWilliam1977/memory-lancedb-pro
+---
+
+# Memory Lancedb Pro Instinct Security Invariant Fix
+
+## Action
+
+Follow the workflow: (1) Implement fix in core logic (index.ts, src/*.ts), (2) Update/add test cases in test/*.test.mjs to cover new edge cases, (3) Ensure source and test files use consistent encoding/formatting (UTF-8, LF), (4) Document reviewer feedback and address must-fix items
+
+## Evidence
+
+- security-or-invariant-fix-with-test-update workflow
+- Commit sequence and files involved
+
